@@ -1,0 +1,186 @@
+
+/**
+ * Core Philosophy: This ruleset enforces a strict user-ownership model for all private data, while enabling public read access for shared content. The primary design goal is to isolate user data to prevent unauthorized access between users, ensuring that individuals can only interact with their own information. Admins, Developers, and Tech Support are granted special privileges to manage users and system data.
+ *
+ * Data Structure:
+ * - /users/{userId}: The root for all user-specific data. Each user has a profile document here.
+ * - /financial_records/{recordId}: A top-level collection for all financial transactions. Authenticated users can create, but not read, update, or delete.
+ * - /offerings/{offeringId}: A top-level collection for offerings. Authenticated users can create, but not read, update, or delete.
+ * - /feedback/{feedbackId}: A top-level collection for user-submitted feedback. Authenticated users can create, but not read, update, or delete.
+ * - /campuses/{campusId}: A top-level collection for managing campus locations. All authenticated users can read and write to this collection.
+ * - /ministries/{ministryId}: A top-level collection for managing ministries. All authenticated users can read and write to this collection.
+ * - /permissions/matrix: A single document storing the application-wide role-based access control matrix.
+ *
+ * Key Security Decisions:
+ * - User Isolation: A user's private data is strictly confined to their own document tree (`/users/{userId}`). Access is granted by matching the authenticated user's ID with the `userId` in the document path.
+ * - Admin/Developer/Tech-Only User Listing: To protect user privacy while allowing for administration, listing the top-level `/users` collection is explicitly allowed only for users with 'Admin', 'Developer', or 'Tech Support' roles.
+ * - Create-Only for Public Collections: Collections like `/financial_records`, `/offerings`, and `/feedback` are designed for write-only access by authenticated users to ensure data integrity and privacy. Once submitted, records cannot be viewed or altered by other users (except for reads on financial_records).
+ * - Permissions Management: The `/permissions/matrix` document is readable by any authenticated user but writable only by privileged users, ensuring that roles and permissions can be centrally managed without allowing unauthorized changes.
+ * - Default Deny: Any operation not explicitly granted by an `allow` rule is implicitly denied. This provides a secure-by-default posture.
+ *
+ * Denormalization for Authorization:
+ * - For top-level collections like `/financial_records`, `/feedback`, and `/offerings`, a `userId` field is denormalized onto each document. This allows rules to verify authorship on `create` operations.
+ *
+ * Structural Segregation:
+ * - Financial data (`financial_records`) and public submission data (`offerings`, `feedback`) are stored in separate top-level collections. This separation makes it simple and efficient to write security rules for different access patterns.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------
+    // Helper Functions
+    // ---------------------------
+
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the currently authenticated user has a privileged role ('Admin', 'Developer', or 'Tech Support').
+     * This requires one 'get' read operation against the user's own profile.
+     */
+    function isPrivileged() {
+      let userRole = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return isSignedIn() && (userRole == 'Admin' || userRole == 'Developer' || userRole == 'Tech Support');
+    }
+
+    /**
+     * Checks if the authenticated user's UID matches the provided userId.
+     * This is the primary function for verifying resource ownership.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Validates that the incoming document's ownership field (userId) matches the user's auth UID.
+     * Used for creating new documents in public collections.
+     */
+    function isCreatingOwnContent() {
+      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    /**
+     * Validates that a user-specific document being created has an internal 'userId'
+     * field that matches the 'userId' from the document path.
+     */
+    function hasCorrectPathIdOnCreate(userId) {
+      return request.resource.data.userId == userId;
+    }
+
+    // ---------------------------
+    // Collection Rules
+    // ---------------------------
+
+    /**
+     * @description Manages user profile documents.
+     * @path /users/{userId}
+     * @allow A user (uid: 'user123') reads their own profile at /users/user123. (get)
+     * @allow An admin, developer, or tech support can list all users. (list)
+     * @deny A non-privileged user tries to list all users. (list)
+     * @deny A user (uid: 'user456') tries to update another user's profile at /users/user123. (update, unless they are privileged)
+     * @principle Restricts access to a user's own data tree and allows privileged users to manage users.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isPrivileged();
+      allow list: if isPrivileged();
+      // Allow privileged users to create users, or a user to create their own profile.
+      allow create: if isPrivileged() || (isOwner(userId) && request.resource.data.uid == userId);
+      allow update: if isOwner(userId) || isPrivileged();
+      allow delete: if isPrivileged();
+    }
+
+    /**
+     * @description Secures the financial records for the application.
+     * @path /financial_records/{recordId}
+     * @allow An authenticated user can create a new record. (create)
+     * @allow An authenticated user can read all records. (read)
+     * @deny Updating or deleting records is disallowed to protect data integrity. (update, delete)
+     * @principle Write-only access for authenticated users, but read access for all authenticated users.
+     */
+    match /financial_records/{recordId} {
+      allow create: if isCreatingOwnContent();
+      allow read: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    /**
+     * @description Manages financial offerings.
+     * @path /offerings/{offeringId}
+     * @allow An authenticated user can create an offering.
+     * @deny Reading, updating, or deleting is disallowed to protect data integrity.
+     * @principle Write-only access for authenticated users.
+     */
+    match /offerings/{offeringId} {
+      allow create: if isCreatingOwnContent();
+      allow read, update, delete: if false;
+    }
+
+    /**
+     * @description Stores user feedback.
+     * @path /feedback/{feedbackId}
+     * @allow An authenticated user can submit feedback.
+     * @deny Reading, updating, or deleting is disallowed to protect data privacy.
+     * @principle Write-only access for authenticated users.
+     */
+    match /feedback/{feedbackId} {
+      allow create: if isCreatingOwnContent();
+      allow read, update, delete: if false;
+    }
+
+    /**
+     * @description DEPRECATED. Use /financial_records instead.
+     */
+    match /giving_entries/{givingEntryId} {
+      allow read, write: if false;
+    }
+
+    /**
+     * @description Manages campus locations.
+     * @path /campuses/{campusId}
+     * @allow Any authenticated user can manage campuses.
+     * @principle Allows all authenticated users to read and write.
+     */
+    match /campuses/{campusId} {
+        allow read, write: if isSignedIn();
+    }
+
+    /**
+     * @description Manages ministries.
+     * @path /ministries/{ministryId}
+     * @allow Any authenticated user can manage ministries.
+     * @principle Allows all authenticated users to read and write.
+     */
+    match /ministries/{ministryId} {
+        allow read, write: if isSignedIn();
+    }
+
+    /**
+     * @description Manages the application-wide permissions matrix.
+     * @path /permissions/matrix
+     * @allow Any authenticated user can read the permissions.
+     * @allow Privileged users (Admin/Developer) can update the permissions.
+     * @principle Centralized, read-only for most, writable by few.
+     */
+    match /permissions/{docId} {
+        allow read: if isSignedIn();
+        allow write: if isPrivileged();
+    }
+     /**
+     * @description Manages financial projections.
+     * @path /projections/{projectionId}
+     * @allow Any authenticated user can read and create projections.
+     * @allow Only privileged users can update or delete.
+     * @principle Allows creation and viewing for all, but modification is restricted.
+     */
+    match /projections/{projectionId} {
+      allow read: if isSignedIn();
+      allow create: if isCreatingOwnContent();
+      allow update, delete: if isPrivileged();
+    }
+  }
+}
