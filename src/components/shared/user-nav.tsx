@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth, useUser } from "@/firebase";
+import { useAuthContext } from "@/context/AuthContext";
 import Link from "next/link"
 import { useRouter } from "next/navigation";
 
@@ -20,11 +21,15 @@ export function UserNav() {
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
+  const { userProfile } = useAuthContext();
 
   const handleSignOut = async () => {
+    if (!auth) return;
     await auth.signOut();
     router.push('/');
   }
+
+  const isDeveloper = userProfile?.role === 'Developer';
 
   return (
     <DropdownMenu>
@@ -53,8 +58,24 @@ export function UserNav() {
           <DropdownMenuItem asChild>
             <Link href="/dashboard/offerings">Offerings</Link>
           </DropdownMenuItem>
+
+          {/* Developer-only links */}
+          {isDeveloper && (
+            <>
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/user-management">User Management</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/ministries">Ministries</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/regions">Regions</Link>
+              </DropdownMenuItem>
+            </>
+          )}
+
            <DropdownMenuItem asChild>
-            <Link href="#">Settings</Link>
+            <Link href="/dashboard/user-settings">Settings</Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

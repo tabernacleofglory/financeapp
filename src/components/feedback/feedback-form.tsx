@@ -32,7 +32,11 @@ const formSchema = z.object({
   message: z.string().min(10, "Feedback must be at least 10 characters long."),
 })
 
-export function FeedbackForm() {
+interface FeedbackFormProps {
+  onSuccess?: () => void;
+}
+
+export function FeedbackForm({ onSuccess }: FeedbackFormProps) {
     const { toast } = useToast();
     const firestore = useFirestore();
     const { user } = useUser();
@@ -68,6 +72,7 @@ export function FeedbackForm() {
             description: "Thank you for your feedback!",
         })
         form.reset();
+        onSuccess?.();
 
     } catch (error) {
         console.error("Error submitting feedback:", error);

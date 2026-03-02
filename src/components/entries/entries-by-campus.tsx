@@ -2,9 +2,9 @@
 "use client";
 
 import React from "react";
-import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, deleteDoc, doc, orderBy, query, writeBatch } from "firebase/firestore";
-import type { FinancialRecord } from "@/lib/types";
+import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from "@/firebase";
+import { collection, deleteDoc, doc, orderBy, query, writeBatch, where } from "firebase/firestore";
+import type { FinancialRecord, UserProfile } from "@/lib/types";
 import {
     Table,
     TableBody,
@@ -17,9 +17,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { format } from "date-fns";
 import { Skeleton } from "../ui/skeleton";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { Button } from "../ui/button";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const formatCurrency = (value: number) => {
@@ -29,7 +28,7 @@ const formatCurrency = (value: number) => {
     }).format(value);
 };
 
-const GIVING_CATEGORIES = ['Offerings', 'Tithes', '365 Offerings', 'First Fruit Offerings', 'Salomon Offerings', 'First Foots'];
+const GIVING_CATEGORIES = ['Offerings', 'Tithes', '365 Offerings', 'First Fruit Offerings', 'Salomon Offerings'];
 const ALL_CATEGORIES = [...GIVING_CATEGORIES, 'Attendance'];
 
 
@@ -74,35 +73,38 @@ const ActionsCell = ({ entry, onEdit }: { entry: GroupedEntry; onEdit: (entry: G
     };
     
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                    <span className="sr-only">Open menu</span>
-                    <MoreHorizontal className="h-4 w-4" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => onEdit(entry)}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={deleteEntry} className="text-destructive focus:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center justify-end space-x-1">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEdit(entry)}>
+                <Pencil className="h-4 w-4" />
+                <span className="sr-only">Edit</span>
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={deleteEntry}>
+                <Trash2 className="h-4 w-4 text-destructive" />
+                <span className="sr-only">Delete</span>
+            </Button>
+        </div>
     );
 }
 
 export function EntriesByCampus({ onEdit }: { onEdit: (entry: GroupedEntry) => void }) {
     const firestore = useFirestore();
+    const { user } = useUser();
+    const userDocRef = useMemoFirebase(() => (firestore && user) ? doc(firestore, 'users', user.uid) : null, [firestore, user]);
+    const { data: userProfile } = useDoc<UserProfile>(userDocRef);
 
     const recordsQuery = useMemoFirebase(
-        () => firestore ? query(collection(firestore, "financial_records"), orderBy("date", "desc")) : null,
-        [firestore]
+        () => {
+            if (!firestore || !userProfile) return null;
+
+            if (userProfile.campus === 'All Campuses') {
+                return query(collection(firestore, "financial_records"), orderBy("date", "desc"));
+            } else if (userProfile.campus) {
+                return query(collection(firestore, "financial_records"), where("campus", "==", userProfile.campus), orderBy("date", "desc"));
+            } else {
+                return null;
+            }
+        },
+        [firestore, userProfile]
     );
 
     const { data: records, isLoading } = useCollection<FinancialRecord>(recordsQuery);

@@ -28,6 +28,11 @@ export default function EntriesPage() {
       setIsOpen(false);
       setEditingEntry(null);
     }
+    
+    const handleFormCancel = () => {
+        setIsOpen(false);
+        setEditingEntry(null);
+    }
 
     return (
         <div className="container mx-auto p-0">
@@ -58,6 +63,7 @@ export default function EntriesPage() {
                         <GivingEntryForm 
                             editingEntry={editingEntry}
                             onSuccess={handleFormSuccess}
+                            onCancel={handleFormCancel}
                         />
                     </CollapsibleContent>
                 </Collapsible>

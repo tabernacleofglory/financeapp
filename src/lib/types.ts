@@ -1,10 +1,18 @@
 
 
+
+
+
+
+
+
+
+
 export type FinancialRecord = {
     id: string;
     userId: string;
     amount: number;
-    category: 'Offerings' | 'Tithes' | '365 Offerings' | 'First Fruit Offerings' | 'Salomon Offerings' | 'Attendance' | 'First Foots' | string;
+    category: 'Offerings' | 'Tithes' | '365 Offerings' | 'First Fruit Offerings' | 'Salomon Offerings' | 'Attendance' | string;
     date: any; // Can be Timestamp from Firestore
     notes?: string;
     createdAt: any; // Can be Timestamp
@@ -28,6 +36,7 @@ export type KpiData = {
   change: string;
   changeType: 'increase' | 'decrease' | 'neutral';
   description: string;
+  subValue?: string;
 };
 
 export type Campus = {
@@ -39,6 +48,7 @@ export type Campus = {
     latlong?: string;
     country?: string;
     areaCode?: string;
+    region?: string;
     image?: string;
     createdAt?: {
         seconds: number;
@@ -64,6 +74,7 @@ export type UserProfile = {
     lastName: string;
     photoURL: string;
     role: 'Developer' | 'Admin' | 'Tech Support' | 'Team' | 'Volunteer' | 'User' | 'Guest';
+    access?: string[];
     campus?: string;
     ministry?: string;
     hpNumber?: string;
@@ -86,7 +97,6 @@ export type PermissionRow = {
       User: boolean;
       Volunteer: boolean;
       Team: boolean;
-      TechSupport: boolean;
       Admin: boolean;
       Developer: boolean;
     };
@@ -117,4 +127,55 @@ export type Projection = {
     projectedState: number;
     createdAt: any;
 }
+
+export type Region = {
+    id: string;
+    name: string;
+    order?: number;
+    createdAt?: {
+        seconds: number;
+        nanoseconds: number;
+    }
+}
     
+export type Resource = {
+    id: string;
+    userId: string;
+    title: string;
+    description?: string;
+    type: 'Link' | 'Video' | 'Image' | 'Document' | 'Memo';
+    url?: string;
+    content?: string;
+    createdAt: any; // Can be Timestamp
+}
+
+export type Reply = {
+    userId: string;
+    message: string;
+    createdAt: any; // Can be Date or Firestore Timestamp
+};
+
+export type Feedback = {
+    id: string;
+    userId: string;
+    name: string;
+    email: string;
+    type: string;
+    message: string;
+    date: any; // Can be Timestamp from Firestore
+    replies?: Reply[];
+};
+
+export type OptionItem = {
+    value: string;
+    label: string;
+};
+
+export type FormOptions = {
+    id: string;
+    options: OptionItem[];
+};
+    
+
+
+

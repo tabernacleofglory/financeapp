@@ -26,11 +26,13 @@ import {
   DrawerDescription,
 } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
+import { UserDetailDialog } from '@/components/user-management/user-detail-dialog';
 
 export default function UserManagementPage() {
   const firestore = useFirestore();
   const [editingUser, setEditingUser] = React.useState<UserProfile | null>(null);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [viewingUser, setViewingUser] = React.useState<UserProfile | null>(null);
   const isMobile = useIsMobile();
 
   const usersQuery = useMemoFirebase(
@@ -44,6 +46,7 @@ export default function UserManagementPage() {
   const { data: users, isLoading } = useCollection<UserProfile>(usersQuery);
 
   const handleEditUser = (user: UserProfile) => {
+    setViewingUser(null);
     setEditingUser(user);
     setIsSheetOpen(true);
   };
@@ -61,6 +64,10 @@ export default function UserManagementPage() {
     }
   };
 
+  const handleViewUser = (user: UserProfile) => {
+    setViewingUser(user);
+  };
+
   const EditComponent = isMobile ? Drawer : Sheet;
   const EditContentComponent = isMobile ? DrawerContent : SheetContent;
 
@@ -76,6 +83,7 @@ export default function UserManagementPage() {
         columns={columns(handleEditUser)}
         data={users || []}
         isLoading={isLoading}
+        onRowClick={handleViewUser}
       />
       <EditComponent open={isSheetOpen} onOpenChange={handleSheetOpenChange}>
         <EditContentComponent className={isMobile ? 'p-4 h-[90vh]' : 'flex flex-col'}>
@@ -93,6 +101,15 @@ export default function UserManagementPage() {
           </ScrollArea>
         </EditContentComponent>
       </EditComponent>
+      <UserDetailDialog
+        user={viewingUser}
+        open={!!viewingUser}
+        onOpenChange={(open) => {
+          if (!open) {
+            setViewingUser(null);
+          }
+        }}
+      />
     </>
   );
 }

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from "react";
@@ -25,7 +26,7 @@ export default function CampusesPage() {
   const [selectedCampus, setSelectedCampus] = React.useState<Campus | null>(null);
 
   const campusesQuery = useMemoFirebase(
-    () => (firestore ? query(collection(firestore, "campuses"), orderBy("createdAt", "desc")) : null),
+    () => (firestore ? query(collection(firestore, "campuses"), orderBy("name", "asc")) : null),
     [firestore]
   );
 

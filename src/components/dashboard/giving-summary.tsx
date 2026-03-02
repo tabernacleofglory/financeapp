@@ -3,10 +3,8 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, TrendingUp, TrendingDown } from "lucide-react";
 import type { FinancialRecord } from '@/lib/types';
 import { Skeleton } from '../ui/skeleton';
-import { Timestamp } from 'firebase/firestore';
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -17,49 +15,26 @@ const formatCurrency = (value: number) => {
 
 interface GivingSummaryProps {
   records?: FinancialRecord[];
+  previousRecords?: FinancialRecord[];
+  projectionPercent?: number | null;
 }
 
-export function GivingSummary({ records }: GivingSummaryProps) {
+export function GivingSummary({ records, previousRecords, projectionPercent }: GivingSummaryProps) {
   const summary = React.useMemo(() => {
-    if (!records) {
-      return { thisWeek: 0, lastWeek: 0, projected: 0 };
+    if (!records || !previousRecords) {
+      return { currentPeriod: 0, previousPeriod: 0, projected: 0 };
     }
 
-    const today = new Date();
-    const currentDay = today.getDay(); // 0 (Sun) - 6 (Sat)
-    
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - currentDay);
-    startOfWeek.setHours(0, 0, 0, 0);
+    const currentPeriodTotal = records.reduce((sum, r) => sum + r.amount, 0);
+    const previousPeriodTotal = previousRecords.reduce((sum, r) => sum + r.amount, 0);
 
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
+    // Use the projection percentage if available, otherwise default to 0% growth
+    const projected = currentPeriodTotal * (1 + ((projectionPercent || 0) / 100));
 
-    const startOfLastWeek = new Date(startOfWeek);
-    startOfLastWeek.setDate(startOfWeek.getDate() - 7);
-    
-    const endOfLastWeek = new Date(endOfWeek);
-    endOfLastWeek.setDate(endOfWeek.getDate() - 7);
+    return { currentPeriod: currentPeriodTotal, previousPeriod: previousPeriodTotal, projected };
+  }, [records, previousRecords, projectionPercent]);
 
-    const thisWeekRecords = records.filter(r => {
-        const recordDate = r.date instanceof Timestamp ? r.date.toDate() : new Date(r.date);
-        return recordDate >= startOfWeek && recordDate <= endOfWeek;
-    });
-
-    const lastWeekRecords = records.filter(r => {
-        const recordDate = r.date instanceof Timestamp ? r.date.toDate() : new Date(r.date);
-        return recordDate >= startOfLastWeek && recordDate <= endOfLastWeek;
-    });
-
-    const thisWeekTotal = thisWeekRecords.reduce((sum, r) => sum + r.amount, 0);
-    const lastWeekTotal = lastWeekRecords.reduce((sum, r) => sum + r.amount, 0);
-    const projected = thisWeekTotal > 0 ? thisWeekTotal + (thisWeekTotal - lastWeekTotal) : 0;
-
-    return { thisWeek: thisWeekTotal, lastWeek: lastWeekTotal, projected };
-  }, [records]);
-
-  const isLoading = records === undefined;
+  const isLoading = records === undefined || previousRecords === undefined;
 
   if (isLoading) {
     return (
@@ -93,15 +68,17 @@ export function GivingSummary({ records }: GivingSummaryProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">THIS WEEK</span>
-            <span className="font-semibold">{formatCurrency(summary.thisWeek)}</span>
+            <span className="text-sm text-muted-foreground">CURRENT PERIOD</span>
+            <span className="font-semibold">{formatCurrency(summary.currentPeriod)}</span>
         </div>
         <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">LAST WEEK</span>
-            <span className="font-semibold">{formatCurrency(summary.lastWeek)}</span>
+            <span className="text-sm text-muted-foreground">PREVIOUS PERIOD</span>
+            <span className="font-semibold">{formatCurrency(summary.previousPeriod)}</span>
         </div>
         <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">PROJECTED</span>
+            <span className="text-sm text-muted-foreground">
+                PROJECTED {projectionPercent !== null && projectionPercent !== undefined && `(${projectionPercent}%)`}
+            </span>
             <span className="font-semibold">{formatCurrency(summary.projected)}</span>
         </div>
       </CardContent>

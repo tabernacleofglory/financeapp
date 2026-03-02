@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -25,29 +26,29 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { useCollection, useDoc, useFirestore, useMemoFirebase, useUser } from "@/firebase"
 import { collection, doc, orderBy, query, updateDoc, setDoc, serverTimestamp } from "firebase/firestore"
-import type { Campus, Ministry, UserProfile } from "@/lib/types"
+import type { Campus, Ministry, UserProfile, PermissionRow } from "@/lib/types"
 import { useMemo, useEffect } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar"
-import { createUserWithEmailAndPassword } from "firebase/auth"
+import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail } from "firebase/auth"
 import { useAuth } from "@/firebase/provider"
+import { initializeApp } from 'firebase/app';
+import { firebaseConfig } from '@/firebase/config';
+import { initialPermissions, roles as allRoles } from "@/lib/permissions"
+import { Checkbox } from "../ui/checkbox"
+import { ScrollArea } from "../ui/scroll-area"
 
-const generateFormSchema = (isEditing: boolean) => {
-    return z.object({
-        firstName: z.string().min(1, "First name is required."),
-        lastName: z.string().min(1, "Last name is required."),
-        email: z.string().email("Please enter a valid email address."),
-        password: isEditing 
-            ? z.string().optional() 
-            : z.string().min(6, "Password must be at least 6 characters."),
-        photoURL: z.string().url("Please enter a valid URL.").optional().or(z.literal("")),
-        role: z.enum(["Developer", "Admin", "Tech Support", "Team", "Volunteer", "User", "Guest"]),
-        campus: z.string().optional(),
-        ministry: z.string().optional(),
-        hpNumber: z.string().optional(),
-    });
-}
+const formSchema = z.object({
+    firstName: z.string().min(1, "First name is required."),
+    lastName: z.string().min(1, "Last name is required."),
+    email: z.string().email("Please enter a valid email address."),
+    photoURL: z.string().url("Please enter a valid URL.").optional().or(z.literal("")),
+    role: z.enum(["Developer", "Admin", "Tech Support", "Team", "Volunteer", "User", "Guest"]),
+    access: z.array(z.string()).optional(),
+    campus: z.string().optional(),
+    ministry: z.string().optional(),
+    hpNumber: z.string().optional(),
+});
 
-const allRoles: UserProfile['role'][] = ["Developer", "Admin", "Tech Support", "Team", "Volunteer", "User", "Guest"];
 const roleHierarchy: Record<UserProfile['role'], number> = {
     'Developer': 0,
     'Admin': 1,
@@ -71,9 +72,6 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
     const { user: currentUser } = useUser();
     const isEditing = !!userToEdit;
 
-    const formSchema = useMemo(() => generateFormSchema(isEditing), [isEditing]);
-
-
     const campusesQuery = useMemoFirebase(
         () => firestore ? query(collection(firestore, "campuses"), orderBy("name", "asc")) : null,
         [firestore]
@@ -92,6 +90,12 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
     );
     const { data: currentUserProfile } = useDoc<UserProfile>(currentUserDocRef);
     
+    const permissionsDocRef = useMemoFirebase(
+        () => firestore ? doc(firestore, 'permissions', 'matrix') : null,
+        [firestore]
+    );
+    const { data: permissionsData } = useDoc<{rules: PermissionRow[]}>(permissionsDocRef);
+
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -100,10 +104,10 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
             email: "",
             photoURL: "",
             role: "User",
+            access: [],
             campus: "",
             ministry: "",
             hpNumber: "",
-            password: "",
         },
     });
 
@@ -118,7 +122,7 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                 campus: userToEdit.campus || "",
                 ministry: userToEdit.ministry || "",
                 hpNumber: userToEdit.hpNumber || "",
-                password: "",
+                access: userToEdit.access || [],
             });
         } else {
             form.reset({
@@ -127,10 +131,10 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                 email: "",
                 photoURL: "",
                 role: "User",
+                access: [],
                 campus: "",
                 ministry: "",
                 hpNumber: "",
-                password: "",
             });
         }
     }, [userToEdit, form]);
@@ -157,11 +161,10 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
         if (isEditing && userToEdit) {
              try {
                 const userRef = doc(firestore, "users", userToEdit.uid);
-                const updatedValues = {
+                const updatedValues: any = {
                     ...values,
                     name: `${values.firstName} ${values.lastName}`.trim(),
                 };
-                delete (updatedValues as any).password;
                 
                 await updateDoc(userRef, updatedValues);
 
@@ -180,11 +183,7 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
             }
         } else {
             // Create new user
-            if (!values.password) {
-                form.setError("password", { type: "manual", message: "Password is required for new users."});
-                return;
-            }
-             if (!auth) {
+            if (!auth) {
                 toast({
                     variant: "destructive",
                     title: "Error",
@@ -193,7 +192,12 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                 return;
             }
             try {
-                const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+                const tempAppName = `auth-worker-${Date.now()}`;
+                const tempApp = initializeApp(firebaseConfig, tempAppName);
+                const tempAuth = getAuth(tempApp);
+                const tempPassword = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+
+                const userCredential = await createUserWithEmailAndPassword(tempAuth, values.email, tempPassword);
                 const newUser = userCredential.user;
                 
                 const displayName = `${values.firstName} ${values.lastName}`.trim();
@@ -207,6 +211,7 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                     lastName: values.lastName,
                     photoURL: values.photoURL || '',
                     role: values.role,
+                    access: values.access || [],
                     campus: values.campus || '',
                     ministry: values.ministry || '',
                     hpNumber: values.hpNumber || '',
@@ -216,9 +221,11 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
 
                 await setDoc(userRef, userData);
 
+                await sendPasswordResetEmail(auth, values.email);
+
                 toast({
                     title: "User Created",
-                    description: `User ${displayName} has been created successfully.`,
+                    description: `User ${displayName} has been created. A password reset link was sent to ${values.email}.`,
                 });
                 onSuccess?.();
 
@@ -308,21 +315,6 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                         </FormItem>
                     )}
                 />
-                 {!isEditing && (
-                    <FormField
-                        control={form.control}
-                        name="password"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Password</FormLabel>
-                                <FormControl>
-                                    <Input type="password" placeholder="Set a password" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                )}
                  <FormField
                     control={form.control}
                     name="hpNumber"
@@ -349,6 +341,7 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                                     </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
+                                    <SelectItem value="All Campuses">All Campuses</SelectItem>
                                     {campuses?.map(campus => (
                                         <SelectItem key={campus.id} value={campus.name}>{campus.name}</SelectItem>
                                     ))}
@@ -402,6 +395,61 @@ export function UserEditForm({ user: userToEdit, onSuccess }: UserEditFormProps)
                         </FormItem>
                     )}
                 />
+                <FormField
+                    control={form.control}
+                    name="access"
+                    render={() => (
+                        <FormItem>
+                        <div className="mb-4">
+                            <FormLabel className="text-base">Access Control</FormLabel>
+                            <FormDescription>
+                            Manually assign permissions to this user.
+                            </FormDescription>
+                        </div>
+                        <ScrollArea className="h-72 w-full rounded-md border">
+                        <div className="p-4 space-y-2">
+                            {initialPermissions.map((item) => (
+                            <FormField
+                                key={item.feature}
+                                control={form.control}
+                                name="access"
+                                render={({ field }) => {
+                                return (
+                                    <FormItem
+                                    key={item.feature}
+                                    className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"
+                                    >
+                                    <div className="space-y-0.5">
+                                        <FormLabel className="text-sm font-medium">
+                                        {item.feature}
+                                        </FormLabel>
+                                    </div>
+                                    <FormControl>
+                                        <Checkbox
+                                        checked={field.value?.includes(item.feature)}
+                                        onCheckedChange={(checked) => {
+                                            const currentAccess = field.value || [];
+                                            return checked
+                                            ? field.onChange([...currentAccess, item.feature])
+                                            : field.onChange(
+                                                currentAccess.filter(
+                                                    (value) => value !== item.feature
+                                                )
+                                                );
+                                        }}
+                                        />
+                                    </FormControl>
+                                    </FormItem>
+                                );
+                                }}
+                            />
+                            ))}
+                        </div>
+                        </ScrollArea>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
                 <Button type="submit" className="w-full">{isEditing ? 'Save Changes' : 'Create User'}</Button>
             </form>
         </Form>

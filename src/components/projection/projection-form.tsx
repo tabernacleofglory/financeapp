@@ -80,7 +80,7 @@ export function ProjectionForm({ projection, onSuccess }: ProjectionFormProps) {
             const startDate = new Date(previousYear, 0, 1);
             const endDate = new Date(previousYear, 11, 31, 23, 59, 59, 999);
 
-            const givingCategories = ['Offerings', 'Tithes', '365 Offerings', 'First Fruit Offerings', 'Salomon Offerings', 'First Foots'];
+            const givingCategories = ['Offerings', 'Tithes', '365 Offerings', 'First Fruit Offerings', 'Salomon Offerings'];
 
             const q = query(collection(firestore, "financial_records"),
                 where("date", ">=", Timestamp.fromDate(startDate)),

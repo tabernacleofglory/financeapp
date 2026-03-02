@@ -14,14 +14,14 @@ const formatCurrency = (value: number) => {
 
 
 export function FinancialCharts({ data }: { data: any[] }) {
-  const categoryTotals = data.reduce((acc, item) => {
+  const categoryTotals = data.reduce((acc: Record<string, number>, item) => {
     Object.keys(item).forEach(key => {
       if(key !== 'date' && key !== 'Attendance' && key !== 'Total Giving' && key !== 'Total Attendance') {
         acc[key] = (acc[key] || 0) + item[key];
       }
     });
     return acc;
-  }, {} as Record<string, number>);
+  }, {});
 
   const barChartData = Object.entries(categoryTotals)
     .map(([name, value]) => ({ name, value }))
@@ -99,7 +99,7 @@ export function FinancialCharts({ data }: { data: any[] }) {
                 outerRadius={100}
                 fill="#8884d8"
                 dataKey="value"
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
               >
                 {pieChartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

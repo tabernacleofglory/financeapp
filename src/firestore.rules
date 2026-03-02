@@ -105,7 +105,7 @@ service cloud.firestore {
     match /financial_records/{recordId} {
       allow create: if isCreatingOwnContent();
       allow read: if isSignedIn();
-      allow update, delete: if false;
+      allow update, delete: if isOwner(resource.data.userId) || isPrivileged();
     }
 
     /**

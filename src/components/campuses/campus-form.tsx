@@ -14,10 +14,13 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
-import { useFirestore } from "@/firebase"
-import { addDoc, collection, serverTimestamp, doc, updateDoc } from "firebase/firestore"
-import type { Campus } from "@/lib/types"
+import { useCollection, useFirestore, useMemoFirebase } from "@/firebase"
+import { addDoc, collection, serverTimestamp, doc, updateDoc, orderBy, query } from "firebase/firestore"
+import type { Campus, Region } from "@/lib/types"
 import React from "react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
+import { Settings } from "lucide-react"
+import { ManageRegionsDialog } from "../regions/manage-regions-dialog"
 
 const formSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
@@ -27,6 +30,7 @@ const formSchema = z.object({
   latlong: z.string().optional(),
   country: z.string().optional(),
   areaCode: z.string().optional(),
+  region: z.string().optional(),
   image: z.string().url("Please enter a valid URL.").optional().or(z.literal("")),
 })
 
@@ -38,6 +42,13 @@ interface CampusFormProps {
 export function CampusForm({ campus, onSuccess }: CampusFormProps) {
     const { toast } = useToast();
     const firestore = useFirestore();
+    const [isManageRegionsOpen, setIsManageRegionsOpen] = React.useState(false);
+
+    const regionsQuery = useMemoFirebase(
+      () => firestore ? query(collection(firestore, "regions"), orderBy("name", "asc")) : null,
+      [firestore]
+    );
+    const { data: regions, isLoading: isLoadingRegions } = useCollection<Region>(regionsQuery);
     
     const form = useForm<z.infer<typeof formSchema>>({
       resolver: zodResolver(formSchema),
@@ -49,6 +60,7 @@ export function CampusForm({ campus, onSuccess }: CampusFormProps) {
           latlong: "",
           country: "",
           areaCode: "",
+          region: "",
           image: "",
       },
     })
@@ -63,6 +75,7 @@ export function CampusForm({ campus, onSuccess }: CampusFormProps) {
           latlong: campus.latlong || "",
           country: campus.country || "",
           areaCode: campus.areaCode || "",
+          region: campus.region || "",
           image: campus.image || "",
         })
       } else {
@@ -74,6 +87,7 @@ export function CampusForm({ campus, onSuccess }: CampusFormProps) {
           latlong: "",
           country: "",
           areaCode: "",
+          region: "",
           image: "",
         })
       }
@@ -114,6 +128,7 @@ export function CampusForm({ campus, onSuccess }: CampusFormProps) {
   }
 
   return (
+    <>
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
         <FormField
@@ -209,6 +224,33 @@ export function CampusForm({ campus, onSuccess }: CampusFormProps) {
         />
         <FormField
           control={form.control}
+          name="region"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Region</FormLabel>
+               <div className="flex items-center gap-2">
+                <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingRegions}>
+                    <FormControl>
+                    <SelectTrigger>
+                        <SelectValue placeholder={isLoadingRegions ? "Loading..." : "Select a region"} />
+                    </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                    {regions?.map(region => (
+                        <SelectItem key={region.id} value={region.name}>{region.name}</SelectItem>
+                    ))}
+                    </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" size="icon" onClick={() => setIsManageRegionsOpen(true)}>
+                    <Settings className="h-4 w-4" />
+                </Button>
+               </div>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
           name="image"
           render={({ field }) => (
             <FormItem>
@@ -223,5 +265,7 @@ export function CampusForm({ campus, onSuccess }: CampusFormProps) {
         <Button type="submit" className="w-full">Submit</Button>
       </form>
     </Form>
+    <ManageRegionsDialog open={isManageRegionsOpen} onOpenChange={setIsManageRegionsOpen} />
+    </>
   )
 }

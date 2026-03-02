@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import * as React from 'react';
@@ -11,41 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
 import type { PermissionRow } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { useDoc, useFirestore, useMemoFirebase, useUser } from '@/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-
-const initialPermissions: PermissionRow[] = [
-    // Dashboard
-    { feature: 'Dashboard', description: 'Main financial overview', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Dashboard > KPI Cards', description: 'View summary financial metrics', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Dashboard > Financial Charts', description: 'View detailed financial charts', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Dashboard > Add Record', description: 'Add a new giving entry from dashboard', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-
-    // Core Features
-    { feature: 'Offerings', description: 'Manage offerings', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Tithes', description: 'Manage tithes', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: '365 Offerings', description: 'Manage 365 offerings', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'First Fruits', description: 'Manage first fruits contributions', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Salomon', description: 'Manage Salomon contributions', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Entries', description: 'Submit new giving entries', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Campuses', description: 'Manage campus locations', permissions: { Guest: false, User: false, Volunteer: false, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Projection', description: 'View financial projections', permissions: { Guest: false, User: false, Volunteer: false, Team: false, TechSupport: false, Admin: true, Developer: true } },
-
-    // Settings & Feedback
-    { feature: 'User Settings', description: 'Manage personal user settings', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Feedback', description: 'Submit application feedback', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-
-    // Dev Tools (Admin/Developer only)
-    { feature: 'Dev Tools', description: 'Access developer and admin tools', permissions: { Guest: false, User: false, Volunteer: false, Team: false, TechSupport: true, Admin: true, Developer: true } },
-    { feature: 'Dev Tools > User Management', description: 'Manage all application users', permissions: { Guest: false, User: false, Volunteer: false, Team: false, TechSupport: false, Admin: true, Developer: true } },
-    { feature: 'Dev Tools > Permission Controls', description: 'Manage role-based permissions', permissions: { Guest: false, User: false, Volunteer: false, Team: false, TechSupport: false, Admin: true, Developer: true } },
-    { feature: 'Dev Tools > App Info', description: 'View application information', permissions: { Guest: false, User: true, Volunteer: true, Team: true, TechSupport: true, Admin: true, Developer: true } },
-];
-
-const roles = ['Developer', 'Admin', 'Tech Support', 'Team', 'Volunteer', 'User', 'Guest'] as const;
-type Role = typeof roles[number];
+import { initialPermissions, roles } from '@/lib/permissions';
+import type { Role } from '@/lib/permissions';
 
 
 export default function PermissionControlsPage() {
@@ -53,17 +23,24 @@ export default function PermissionControlsPage() {
     const [isDirty, setIsDirty] = React.useState(false);
     const { toast } = useToast();
     const firestore = useFirestore();
+    const { user } = useUser();
 
     const permissionsDocRef = useMemoFirebase(
-        () => firestore ? doc(firestore, 'permissions', 'matrix') : null,
-        [firestore]
+        () => (firestore && user) ? doc(firestore, 'permissions', 'matrix') : null,
+        [firestore, user]
     );
 
     const { data: savedPermissionsData, isLoading } = useDoc<{rules: PermissionRow[]}>(permissionsDocRef);
 
     React.useEffect(() => {
         if (savedPermissionsData?.rules) {
-            setPermissions(savedPermissionsData.rules);
+            // Merge saved permissions with initialPermissions to handle newly added features
+            const savedFeatures = new Set(savedPermissionsData.rules.map(r => r.feature));
+            const mergedPermissions = [
+                ...savedPermissionsData.rules,
+                ...initialPermissions.filter(p => !savedFeatures.has(p.feature))
+            ];
+            setPermissions(mergedPermissions);
         }
     }, [savedPermissionsData]);
 

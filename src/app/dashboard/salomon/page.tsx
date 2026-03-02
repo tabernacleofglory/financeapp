@@ -3,13 +3,14 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Search, TrendingDown, TrendingUp } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
-import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import type { Campus, FinancialRecord, Projection } from '@/lib/types';
+import { useCollection, useFirestore, useMemoFirebase, useUser, useDoc } from '@/firebase';
+import { collection, query, where, getDocs, Timestamp, orderBy, doc } from 'firebase/firestore';
+import type { Campus, FinancialRecord, Projection, UserProfile, Region } from '@/lib/types';
+import { RegionalCampusData, RegionalCampusSummaryTable } from '@/components/dashboard/regional-campus-summary-table';
+import { useDateRange } from '@/context/DateRangeContext';
+import { PageHeader } from '@/components/shared/page-header';
+import { DateRangeSelector } from '@/components/shared/date-range-selector';
+
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -18,22 +19,23 @@ const formatCurrency = (value: number) => {
     }).format(value);
 };
 
-interface CampusOfferingData {
-    campus: string;
-    attendance: number;
-    reported: number;
-    ratio: number;
-    change: number;
-}
-
 export default function SalomonPage() {
-  const [summaryData, setSummaryData] = React.useState({ thisWeek: 0, lastWeek: 0, projected: 0 });
-  const [campusData, setCampusData] = React.useState<CampusOfferingData[]>([]);
+  const [summaryData, setSummaryData] = React.useState({ currentPeriod: 0, previousPeriod: 0, projected: 0 });
+  const [campusData, setCampusData] = React.useState<RegionalCampusData[]>([]);
   const [projectionPercent, setProjectionPercent] = React.useState<number | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
   const firestore = useFirestore();
+  const { dateRange, getPreviousPeriod } = useDateRange();
 
-  const campusesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'campuses') : null, [firestore]);
+  const { user } = useUser();
+  const userDocRef = useMemoFirebase(() => (firestore && user) ? doc(firestore, 'users', user.uid) : null, [firestore, user]);
+  const { data: userProfile } = useDoc<UserProfile>(userDocRef);
+
+  const campusesQuery = useMemoFirebase(() => firestore ? query(collection(firestore, 'campuses'), orderBy("name", "asc")) : null, [firestore]);
   const { data: campuses } = useCollection<Campus>(campusesQuery);
+
+  const regionsQuery = useMemoFirebase(() => firestore ? query(collection(firestore, 'regions')) : null, [firestore]);
+  const { data: regions } = useCollection<Region>(regionsQuery);
 
   const currentYear = new Date().getFullYear();
   const projectionsQuery = useMemoFirebase(() => firestore ? query(collection(firestore, 'projections'), where('year', '==', currentYear)) : null, [firestore]);
@@ -48,60 +50,63 @@ export default function SalomonPage() {
   }, [projections]);
 
   React.useEffect(() => {
-    if (!firestore || !campuses) return;
+    const hasCampusAccess = userProfile?.campus && userProfile.campus.length > 0;
+    const hasAllCampusAccess = userProfile?.campus === 'All Campuses';
 
+    if (!firestore || !campuses || !userProfile || (!hasCampusAccess && !hasAllCampusAccess) || !dateRange?.from || !dateRange?.to) {
+        setIsLoading(false);
+        setSummaryData({ currentPeriod: 0, previousPeriod: 0, projected: 0 });
+        setCampusData([]);
+        return;
+    }
+
+    setIsLoading(true);
     const fetchData = async () => {
-        const today = new Date();
-        const startOfWeek = new Date(today.setDate(today.getDate() - today.getDay()));
-        startOfWeek.setHours(0, 0, 0, 0);
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(endOfWeek.getDate() + 6);
-        endOfWeek.setHours(23, 59, 59, 999);
+        const currentPeriodStart = dateRange.from!;
+        const currentPeriodEnd = dateRange.to!;
+        const { from: previousPeriodStart, to: previousPeriodEnd } = getPreviousPeriod(dateRange);
 
-        const startOfLastWeek = new Date(startOfWeek);
-        startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
-        const endOfLastWeek = new Date(startOfLastWeek);
-        endOfLastWeek.setDate(endOfLastWeek.getDate() + 6);
-
-        const financialRecordsQuery = collection(firestore, 'financial_records');
+        const financialRecordsRef = collection(firestore, 'financial_records');
         
-        const thisWeekQuery = query(financialRecordsQuery, where('date', '>=', Timestamp.fromDate(startOfWeek)), where('date', '<=', Timestamp.fromDate(endOfWeek)));
-        const lastWeekQuery = query(financialRecordsQuery, where('date', '>=', Timestamp.fromDate(startOfLastWeek)), where('date', '<=', Timestamp.fromDate(endOfLastWeek)));
+        const getRecordsForPeriod = async (start: Date, end: Date) => {
+            const queryConstraints: any[] = [
+                where('date', '>=', Timestamp.fromDate(start)),
+                where('date', '<=', Timestamp.fromDate(end))
+            ];
+            if (hasCampusAccess && !hasAllCampusAccess) {
+                queryConstraints.push(where('campus', '==', userProfile.campus));
+            }
 
-        const [thisWeekSnapshot, lastWeekSnapshot] = await Promise.all([
-            getDocs(thisWeekQuery),
-            getDocs(lastWeekQuery)
+            const q = query(financialRecordsRef, ...queryConstraints);
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(doc => {
+                const data = doc.data() as FinancialRecord;
+                if (data.date instanceof Timestamp) {
+                    data.date = data.date.toDate();
+                }
+                return data;
+            });
+        };
+
+        const [currentPeriodEntries, previousPeriodEntries] = await Promise.all([
+            getRecordsForPeriod(currentPeriodStart, currentPeriodEnd),
+            getRecordsForPeriod(previousPeriodStart, previousPeriodEnd)
         ]);
 
-        const thisWeekEntries = thisWeekSnapshot.docs.map(doc => {
-            const data = doc.data() as FinancialRecord;
-            if (data.date instanceof Timestamp) {
-                data.date = data.date.toDate();
-            }
-            return data;
-        });
-        const lastWeekEntries = lastWeekSnapshot.docs.map(doc => {
-            const data = doc.data() as FinancialRecord;
-            if (data.date instanceof Timestamp) {
-                data.date = data.date.toDate();
-            }
-            return data;
-        });
+        const currentPeriodTotal = currentPeriodEntries.filter(e => e.category === 'Salomon Offerings').reduce((sum, entry) => sum + (entry.amount || 0), 0);
+        const previousPeriodTotal = previousPeriodEntries.filter(e => e.category === 'Salomon Offerings').reduce((sum, entry) => sum + (entry.amount || 0), 0);
 
-        const thisWeekTotal = thisWeekEntries.filter(e => e.category === 'Salomon Offerings').reduce((sum, entry) => sum + (entry.amount || 0), 0);
-        const lastWeekTotal = lastWeekEntries.filter(e => e.category === 'Salomon Offerings').reduce((sum, entry) => sum + (entry.amount || 0), 0);
-
-        const calculatedProjected = thisWeekTotal * (1 + ((projectionPercent || 0) / 100));
+        const calculatedProjected = currentPeriodTotal * (1 + ((projectionPercent || 0) / 100));
 
         setSummaryData({
-            thisWeek: thisWeekTotal,
-            lastWeek: lastWeekTotal,
+            currentPeriod: currentPeriodTotal,
+            previousPeriod: previousPeriodTotal,
             projected: calculatedProjected,
         });
 
         const aggregatedCampusData = campuses.map(campus => {
-            const thisWeekCampusEntries = thisWeekEntries.filter(entry => entry.campus === campus.name);
-            const lastWeekCampusEntries = lastWeekEntries.filter(entry => entry.campus === campus.name);
+            const thisWeekCampusEntries = currentPeriodEntries.filter(entry => entry.campus === campus.name);
+            const lastWeekCampusEntries = previousPeriodEntries.filter(entry => entry.campus === campus.name);
 
             const thisWeekReported = thisWeekCampusEntries.filter(e => e.category === 'Salomon Offerings').reduce((sum, entry) => sum + (entry.amount || 0), 0);
             const thisWeekAttendance = thisWeekCampusEntries.filter(e => e.category === 'Attendance').reduce((sum, entry) => sum + (entry.amount || 0), 0);
@@ -117,86 +122,53 @@ export default function SalomonPage() {
                 reported: thisWeekReported,
                 ratio,
                 change,
+                region: campus.region || 'Uncategorized',
             };
         });
 
         setCampusData(aggregatedCampusData);
+        setIsLoading(false);
     };
 
     fetchData();
-  }, [firestore, campuses, projectionPercent]);
+  }, [firestore, campuses, projectionPercent, userProfile, dateRange, getPreviousPeriod]);
 
 
   return (
     <>
-        <div className="relative w-full mb-6">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-                type="search"
-                placeholder="Search Salomon..."
-                className="w-full appearance-none bg-background pl-8 shadow-none md:w-1/3 lg:w-1/4"
-            />
-        </div>
+        <PageHeader title="Salomon">
+            <DateRangeSelector />
+        </PageHeader>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
-            <Card>
-                <CardHeader>
-                    <CardTitle className="tracking-wider">SALOMON</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">THIS WEEK</span>
-                        <span className="font-semibold">{formatCurrency(summaryData.thisWeek)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">LAST WEEK</span>
-                        <span className="font-semibold">{formatCurrency(summaryData.lastWeek)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                            PROJECTED {projectionPercent !== null && `(${projectionPercent}%)`}
-                        </span>
-                        <span className="font-semibold">{formatCurrency(summaryData.projected)}</span>
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+            <div className="lg:col-span-1">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="tracking-wider">SALOMON</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">CURRENT PERIOD</span>
+                            <span className="font-semibold">{formatCurrency(summaryData.currentPeriod)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">PREVIOUS PERIOD</span>
+                            <span className="font-semibold">{formatCurrency(summaryData.previousPeriod)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">
+                                PROJECTED {projectionPercent !== null && `(${projectionPercent}%)`}
+                            </span>
+                            <span className="font-semibold">{formatCurrency(summaryData.projected)}</span>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
 
-        <div className="lg:col-span-2 mt-6 lg:mt-0">
-            <Card>
-                <CardContent className="p-0">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>CAMPUSES</TableHead>
-                                <TableHead className="text-right">Attendance</TableHead>
-                                <TableHead className="text-right">Reported</TableHead>
-                                <TableHead className="text-right">Ratio per Giver</TableHead>
-                                <TableHead className="text-right">CHG%</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {campusData.map((item, index) => (
-                                <TableRow key={index}>
-                                    <TableCell className="font-medium">{item.campus}</TableCell>
-                                    <TableCell className="text-right">{item.attendance.toLocaleString()}</TableCell>
-                                    <TableCell className="text-right">{item.reported > 0 ? formatCurrency(item.reported) : '-'}</TableCell>
-                                    <TableCell className="text-right">{item.ratio > 0 ? item.ratio.toFixed(2) : '-'}</TableCell>
-                                    <TableCell className={cn("text-right flex items-center justify-end gap-1", item.change > 0 ? "text-green-600" : item.change < 0 ? "text-red-600" : "text-muted-foreground")}>
-                                        {item.change !== 0 && (
-                                          item.change > 0 ? <TrendingUp className="h-4 w-4"/> : <TrendingDown className="h-4 w-4"/>
-                                        )}
-                                        {item.change.toFixed(2)}%
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
+            <div className="lg:col-span-2">
+                <RegionalCampusSummaryTable data={campusData} regions={regions || []} isLoading={isLoading} />
+            </div>
         </div>
-      </div>
     </>
   );
 }

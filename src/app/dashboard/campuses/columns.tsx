@@ -87,6 +87,10 @@ export const columns = ({ onEdit }: { onEdit: (campus: Campus) => void }): Colum
       },
   },
   {
+    accessorKey: "region",
+    header: "Region",
+  },
+  {
     accessorKey: "phone",
     header: "Phone",
   },

@@ -93,7 +93,17 @@ export default function ProjectionPage() {
                                         <TableCell className="text-center">{data.projection}%</TableCell>
                                         <TableCell className="text-right">{formatCurrency(data.projectedState)}</TableCell>
                                         <TableCell>
-                                            {tableColumns.find(c => c.id === 'actions')?.cell?.({ row: { original: data } } as any)}
+                                            {(() => {
+                                                const actionColumn = tableColumns.find(c => c.id === 'actions');
+                                                if (actionColumn && actionColumn.cell) {
+                                                    const cellContent = actionColumn.cell;
+                                                    if (typeof cellContent === 'function') {
+                                                        return cellContent({ row: { original: data } } as any);
+                                                    }
+                                                    return cellContent;
+                                                }
+                                                return null;
+                                            })()}
                                         </TableCell>
                                     </TableRow>
                                 ))
