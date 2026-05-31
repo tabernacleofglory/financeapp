@@ -5,12 +5,7 @@ import { doc } from 'firebase/firestore';
 import { useUser } from '@/firebase/provider';
 import { useFirestore } from '@/firebase/provider';
 import { useDoc } from '@/firebase/firestore/use-doc';
-
-// Define the shape of the user profile data
-interface UserProfile {
-  role?: string;
-  // Add other user profile fields here
-}
+import type { UserProfile } from '@/lib/types';
 
 // Define the shape of the context state
 interface AuthContextState {

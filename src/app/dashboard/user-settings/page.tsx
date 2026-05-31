@@ -228,7 +228,7 @@ export default function UserSettingsPage() {
                                         value={date?.from ? format(date.from, 'yyyy-MM-dd') : ''}
                                         onChange={(e) => {
                                             const fromDate = e.target.value ? new Date(e.target.value + 'T00:00:00') : undefined;
-                                            setDate((prev) => ({ ...prev, from: fromDate }));
+                                            setDate((prev) => ({ from: fromDate, to: prev?.to }));
                                         }}
                                     />
                                     <span>-</span>
@@ -237,7 +237,7 @@ export default function UserSettingsPage() {
                                         value={date?.to ? format(date.to, 'yyyy-MM-dd') : ''}
                                         onChange={(e) => {
                                             const toDate = e.target.value ? new Date(e.target.value + 'T00:00:00') : undefined;
-                                            setDate((prev) => ({ ...prev, to: toDate }));
+                                            setDate((prev) => ({ from: prev?.from!, to: toDate }));
                                         }}
                                     />
                                 </div>

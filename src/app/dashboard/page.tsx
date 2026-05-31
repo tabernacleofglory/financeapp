@@ -296,7 +296,9 @@ export default function DashboardPage() {
             const currentPeriodEnd = new Date(dateRange.to!);
             currentPeriodEnd.setHours(23, 59, 59, 999);
 
-            const { from: previousPeriodStart, to: previousPeriodEnd } = getPreviousPeriod(dateRange);
+            const previousPeriodRange = getPreviousPeriod(dateRange);
+        const previousPeriodStart = previousPeriodRange.from!;
+        const previousPeriodEnd = previousPeriodRange.to!;
 
             const financialRecordsRef = collection(firestore, 'financial_records');
             
