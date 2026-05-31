@@ -64,7 +64,7 @@ export default function ThreeSixtyFiveOfferingsPage() {
     const fetchData = async () => {
         const currentPeriodStart = dateRange.from!;
         const currentPeriodEnd = dateRange.to!;
-        const { from: previousPeriodStart, to: previousPeriodEnd } = getPreviousPeriod(dateRange);
+        const { from: previousPeriodStart, to: previousPeriodEnd } = getPreviousPeriod(dateRange)!;
 
         const financialRecordsRef = collection(firestore, 'financial_records');
         
